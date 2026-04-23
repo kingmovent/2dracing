@@ -50,3 +50,7 @@
 2026-04-23 23:36:33 [DEBUG] SAFE_MODE=False, player_car_image=OK, rival_images=40
 2026-04-23 23:46:55 [DEBUG] Loaded assets: player=True, rivals=40
 2026-04-23 23:46:55 [DEBUG] SAFE_MODE=False, player_car_image=OK, rival_images=40
+2026-04-24 00:02:03 [DEBUG] Loaded assets: player=True, rivals=40
+2026-04-24 00:02:03 [DEBUG] SAFE_MODE=False, player_car_image=OK, rival_images=40
+2026-04-24 00:05:08 [DEBUG] Loaded assets: player=True, rivals=40
+2026-04-24 00:05:08 [DEBUG] SAFE_MODE=False, player_car_image=OK, rival_images=40

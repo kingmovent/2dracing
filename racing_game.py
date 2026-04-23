@@ -172,7 +172,7 @@ def main():
     clock = pygame.time.Clock()
 
     # 使用字体加载函数，优先显示中文字体
-    font = load_font(36)
+    font = load_font(20)
     
     # 车道参数
     ROAD_WIDTH = 420
