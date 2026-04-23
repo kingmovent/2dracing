@@ -8,6 +8,7 @@
 import sys
 import random
 import os
+import math
 
 import pygame
 
@@ -146,6 +147,16 @@ def load_racer_images(target_w=60, target_h=90):
         except Exception:
             continue
     return racers
+def grass_color(pos, frame):
+    base = (34, 139, 34)  # grass green
+    # subtle texture variation across position and time
+    v = math.sin(pos * 0.25 + frame * 0.05)
+    delta = int(v * 8)  # [-8, 8]
+    r = max(0, min(255, base[0] + delta))
+    g = max(0, min(255, base[1] + delta // 2))
+    b = base[2]
+    return (r, g, b)
+
 def main():
     pygame.init()
     WIDTH, HEIGHT = 800, 600
@@ -157,7 +168,7 @@ def main():
         pygame.display.quit()
         pygame.display.init()
         screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("简单赛车游戏")
+    pygame.display.set_caption("Little Highway Racer")
     clock = pygame.time.Clock()
 
     # 使用字体加载函数，优先显示中文字体
@@ -297,25 +308,34 @@ def main():
                         log(f"Collision: player with rival at ({opp['x']},{opp['y']}) size ({opp['w']},{opp['h']})", "DEBUG")
                     break
 
-        # 绘制场景
-        screen.fill((0, 0, 0))
+        # 绘制场景（黑色边界、草地道路在中间）
+        screen.fill((0, 0, 0))  # black background for margins
 
-        # 车道（左/右边界与中线）
-        pygame.draw.rect(screen, (50, 50, 50), (ROAD_LEFT, 0, ROAD_WIDTH, HEIGHT))
-        pygame.draw.rect(screen, (255, 255, 255), (ROAD_LEFT, 0, 6, HEIGHT))
-        pygame.draw.rect(screen, (255, 255, 255), (ROAD_RIGHT - 6, 0, 6, HEIGHT))
-        # 中线虚线
-        center_x = WIDTH // 2
-        dash_h = 20
-        dash_gap = 20
-        # moving center line to simulate forward motion (forward/downward)
+        # 草地道路（地面为草地质地，增加宽度）
+        # 侧边双实线（靠近边界）
+        pygame.draw.rect(screen, (34, 139, 34), (ROAD_LEFT, 0, ROAD_WIDTH, HEIGHT))
+        for x in [ROAD_LEFT + 6, ROAD_LEFT + 12]:
+            pygame.draw.rect(screen, (255, 255, 255), (x, 0, 2, HEIGHT))
+        for x in [ROAD_RIGHT - 12, ROAD_RIGHT - 6]:
+            pygame.draw.rect(screen, (255, 255, 255), (x, 0, 2, HEIGHT))
+        # 中间斑马线，延伸到顶到底并动态滚动以表示前进
+        center_x = ROAD_LEFT + ROAD_WIDTH // 2
+        line_speed = max(60.0, CENTER_LINE_SPEED * (car_speed / 7.0))
         if not game_over:
-            road_line_offset = (road_line_offset + CENTER_LINE_SPEED * dt) % DASH_CYCLE
-        # Draw multiple dashes with an offset to create the illusion of motion
+            road_line_offset = (road_line_offset + line_speed * dt) % DASH_CYCLE
         for y in range(-DASH_H, HEIGHT, DASH_CYCLE):
             pos = int(y + road_line_offset)
             if 0 <= pos <= HEIGHT:
                 pygame.draw.rect(screen, (255, 255, 255), (center_x - 2, pos, 4, DASH_H))
+        # Grass texture overlay on the road surface to give a textured feel
+        # Simple horizontal gradient texture across the road
+        for y in range(0, HEIGHT, 6):
+            t = y / max(1, HEIGHT)
+            r = int(34 * (1 - t) + 60 * t)
+            g = int(139 * (1 - t) + 180 * t)
+            b = int(34 * (1 - t) + 70 * t)
+            color = (r, g, b)
+            pygame.draw.line(screen, color, (ROAD_LEFT, y), (ROAD_RIGHT, y))
         # 绘制更美观的小车外观（如无图片则回退到绘制）
         if player_car_image is not None:
             screen.blit(player_car_image, (car_x, car_y))
@@ -333,13 +353,13 @@ def main():
                 pygame.draw.rect(screen, (200, 0, 0), (opp["x"], opp["y"], opp["w"], opp["h"]))
 
         # HUD
-        dist_text = font.render(f"距离: {int(distance)}", True, (255, 255, 255))
+        dist_text = font.render(f"Distance: {int(distance)}", True, (255, 255, 255))
         screen.blit(dist_text, (10, 10))
-        lvl_text = font.render(f"等级: {level}", True, (255, 255, 255))
+        lvl_text = font.render(f"Level: {level}", True, (255, 255, 255))
         screen.blit(lvl_text, (10, 44))
 
         if game_over:
-            over_text = font.render("游戏结束！按 R 重启，Q 退出", True, (255, 0, 0))
+            over_text = font.render("Game Over! Press R to Restart, Q to Quit", True, (255, 0, 0))
             rect = over_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
             screen.blit(over_text, rect)
 
