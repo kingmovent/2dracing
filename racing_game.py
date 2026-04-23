@@ -36,6 +36,31 @@ def draw_car(surface, x, y, w, h):
     pygame.draw.circle(surface, (20, 20, 20), (int(x + w * 0.75), int(y + h * 0.92)), wheel_r)
 
 
+def load_font(size):
+    # 优先尝试加载常见的中文字体以避免中文显示为乱码
+    font_candidates = [
+        r"C:\Windows\Fonts\msyh.ttf",        # Microsoft YaHei
+        r"C:\Windows\Fonts\msyhbd.ttf",      # Microsoft YaHei Bold
+        r"C:\Windows\Fonts\simsun.ttc",      # SimSun (Song)
+        r"C:\Windows\Fonts\simsun.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux common
+        "/Library/Fonts/Arial Unicode.ttf",     # macOS fallback
+    ]
+    for path in font_candidates:
+        if os.path.exists(path):
+            try:
+                return pygame.font.Font(path, size)
+            except Exception:
+                continue
+    # 最后用系统字体进行回退
+    try:
+        return pygame.font.SysFont("Microsoft YaHei", size)
+    except Exception:
+        try:
+            return pygame.font.SysFont("Arial", size)
+        except Exception:
+            return pygame.font.Font(None, size)
+
 def main():
     pygame.init()
     WIDTH, HEIGHT = 800, 600
@@ -50,11 +75,8 @@ def main():
     pygame.display.set_caption("简单赛车游戏")
     clock = pygame.time.Clock()
 
-    # 使用更稳健的字体初始化，避免在某些环境中 SysFont(None, ...) 触发异常
-    try:
-    font = pygame.font.SysFont("Arial", 36)
-    except Exception:
-        font = pygame.font.Font(None, 36)
+    # 使用字体加载函数，优先显示中文字体
+    font = load_font(36)
 
     # 车道参数
     ROAD_WIDTH = 420
