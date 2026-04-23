@@ -116,7 +116,10 @@ def load_player_car_image(target_w, target_h):
     return None
 
 def load_racer_images(target_w=60, target_h=90):
-    """加载其他编号的赛车图片，返回列表 of dicts: {'image': Surface, 'w': int, 'h': int}"""
+    """Load rival cars images from cars/ and scale to target width while preserving aspect ratio.
+    Returns a list of dicts: {'image': Surface, 'w': int, 'h': int}.
+    Note: the width will be clamped to target_w and height is computed to preserve aspect ratio.
+    """
     dir_path = os.path.join(os.path.dirname(__file__), 'cars')
     racers = []
     if not os.path.isdir(dir_path):
@@ -124,7 +127,6 @@ def load_racer_images(target_w=60, target_h=90):
     items = []
     for fname in sorted(os.listdir(dir_path)):
         if fname.lower().startswith('pitstop_car_') and fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-            # parse index if available
             import re
             m = re.match(r"pitstop_car_(\d+)", fname[:-4], re.IGNORECASE)
             idx = int(m.group(1)) if m else 0
@@ -134,8 +136,13 @@ def load_racer_images(target_w=60, target_h=90):
         path = os.path.join(dir_path, fname)
         try:
             img = pygame.image.load(path).convert_alpha()
-            img = pygame.transform.scale(img, (target_w, target_h))
-            racers.append({'image': img, 'w': target_w, 'h': target_h})
+            orig_w, orig_h = img.get_size()
+            if orig_w <= 0 or orig_h <= 0:
+                continue
+            # Force exact player size for opponent cars
+            new_w, new_h = int(target_w), int(target_h)
+            img = pygame.transform.scale(img, (new_w, new_h))
+            racers.append({'image': img, 'w': new_w, 'h': new_h})
         except Exception:
             continue
     return racers
@@ -174,7 +181,7 @@ def main():
         rival_images = []
     else:
         player_car_image = load_player_car_image(CAR_WIDTH, CAR_HEIGHT)
-        rival_images = load_racer_images(60, 90)
+        rival_images = load_racer_images(CAR_WIDTH, CAR_HEIGHT)
     log(f"Loaded assets: player={bool(player_car_image)}, rivals={len(rival_images)}", "DEBUG")
     log(f"SAFE_MODE={SAFE_MODE}, player_car_image={'OK' if player_car_image else 'NONE'}, rival_images={len(rival_images)}", "DEBUG")
     # 初始化对手赛车集合
@@ -193,6 +200,12 @@ def main():
     game_over = False
 
     frame_count = 0
+    # Motion illusion for center dashed line
+    CENTER_LINE_SPEED = 240.0  # px per second
+    DASH_H = 20
+    DASH_GAP = 20
+    DASH_CYCLE = DASH_H + DASH_GAP
+    road_line_offset = 0.0
     while True:
         dt = clock.tick(60) / 1000.0  # seconds elapsed this frame
         frame_count += 1
@@ -214,6 +227,7 @@ def main():
                         distance = 0.0
                         level = 0
                         spawn_timer = 0.0
+                        road_line_offset = 0.0
                         game_over = False
                         spawn_interval = 0.9
                 if event.key == pygame.K_q:
@@ -294,8 +308,14 @@ def main():
         center_x = WIDTH // 2
         dash_h = 20
         dash_gap = 20
-        for y in range(0, HEIGHT, dash_h + dash_gap):
-            pygame.draw.rect(screen, (255, 255, 255), (center_x - 2, y, 4, dash_h))
+        # moving center line to simulate forward motion (forward/downward)
+        if not game_over:
+            road_line_offset = (road_line_offset + CENTER_LINE_SPEED * dt) % DASH_CYCLE
+        # Draw multiple dashes with an offset to create the illusion of motion
+        for y in range(-DASH_H, HEIGHT, DASH_CYCLE):
+            pos = int(y + road_line_offset)
+            if 0 <= pos <= HEIGHT:
+                pygame.draw.rect(screen, (255, 255, 255), (center_x - 2, pos, 4, DASH_H))
         # 绘制更美观的小车外观（如无图片则回退到绘制）
         if player_car_image is not None:
             screen.blit(player_car_image, (car_x, car_y))
