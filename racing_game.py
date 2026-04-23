@@ -11,6 +11,22 @@ import os
 
 import pygame
 
+# Debugging helpers
+DEBUG_MODE = os.environ.get("RACING_DEBUG", "0") == "1" or os.environ.get("RACING_SAFE", "0") == "1"
+LOG_FILE = os.path.join(os.path.dirname(__file__), "racing_debug.log")
+
+def log(msg, level="INFO"):
+    try:
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"{timestamp} [{level}] {msg}"
+        print(line)
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        # 不让日志失败干扰游戏运行
+        pass
+
 def draw_car(surface, x, y, w, h):
     # 车身
     body_color = (30, 144, 255)  # dodger blue
@@ -34,6 +50,25 @@ def draw_car(surface, x, y, w, h):
     wheel_r = max(3, int(h * 0.18))
     pygame.draw.circle(surface, (20, 20, 20), (int(x + w * 0.25), int(y + h * 0.92)), wheel_r)
     pygame.draw.circle(surface, (20, 20, 20), (int(x + w * 0.75), int(y + h * 0.92)), wheel_r)
+
+
+def load_car_image(target_w, target_h):
+    """尝试从 cars/ 目录加载一张汽车图片，尺寸缩放到目标宽高。"""
+    dir_path = os.path.join(os.path.dirname(__file__), 'cars')
+    if not os.path.isdir(dir_path):
+        return None
+    candidates = []
+    for fname in sorted(os.listdir(dir_path)):
+        if fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+            candidates.append(os.path.join(dir_path, fname))
+    for path in candidates:
+        try:
+            img = pygame.image.load(path).convert_alpha()
+            img = pygame.transform.scale(img, (target_w, target_h))
+            return img
+        except Exception:
+            continue
+    return None
 
 
 def load_font(size):
@@ -61,6 +96,49 @@ def load_font(size):
         except Exception:
             return pygame.font.Font(None, size)
 
+def load_player_car_image(target_w, target_h):
+    """加载 pitstop_car_1.* 作为玩家的赛车图片，失败则返回 None"""
+    dir_path = os.path.join(os.path.dirname(__file__), 'cars')
+    if not os.path.isdir(dir_path):
+        return None
+    # 只关注 pitstop_car_1 命名的图片
+    candidates = []
+    for fname in sorted(os.listdir(dir_path)):
+        if fname.lower().startswith('pitstop_car_1') and fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+            candidates.append(os.path.join(dir_path, fname))
+    for path in candidates:
+        try:
+            img = pygame.image.load(path).convert_alpha()
+            img = pygame.transform.scale(img, (target_w, target_h))
+            return img
+        except Exception:
+            continue
+    return None
+
+def load_racer_images(target_w=60, target_h=90):
+    """加载其他编号的赛车图片，返回列表 of dicts: {'image': Surface, 'w': int, 'h': int}"""
+    dir_path = os.path.join(os.path.dirname(__file__), 'cars')
+    racers = []
+    if not os.path.isdir(dir_path):
+        return racers
+    items = []
+    for fname in sorted(os.listdir(dir_path)):
+        if fname.lower().startswith('pitstop_car_') and fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+            # parse index if available
+            import re
+            m = re.match(r"pitstop_car_(\d+)", fname[:-4], re.IGNORECASE)
+            idx = int(m.group(1)) if m else 0
+            items.append((idx, fname))
+    items.sort()
+    for idx, fname in items:
+        path = os.path.join(dir_path, fname)
+        try:
+            img = pygame.image.load(path).convert_alpha()
+            img = pygame.transform.scale(img, (target_w, target_h))
+            racers.append({'image': img, 'w': target_w, 'h': target_h})
+        except Exception:
+            continue
+    return racers
 def main():
     pygame.init()
     WIDTH, HEIGHT = 800, 600
@@ -77,7 +155,7 @@ def main():
 
     # 使用字体加载函数，优先显示中文字体
     font = load_font(36)
-
+    
     # 车道参数
     ROAD_WIDTH = 420
     ROAD_LEFT = (WIDTH - ROAD_WIDTH) // 2
@@ -88,6 +166,21 @@ def main():
     car_x = WIDTH // 2 - CAR_WIDTH // 2
     car_y = HEIGHT - CAR_HEIGHT - 50
     car_speed = 7
+    
+    # Load player and rival car images after defining dimensions
+    SAFE_MODE = os.environ.get("RACING_SAFE", "0") == "1"
+    if SAFE_MODE:
+        player_car_image = None
+        rival_images = []
+    else:
+        player_car_image = load_player_car_image(CAR_WIDTH, CAR_HEIGHT)
+        rival_images = load_racer_images(60, 90)
+    log(f"Loaded assets: player={bool(player_car_image)}, rivals={len(rival_images)}", "DEBUG")
+    log(f"SAFE_MODE={SAFE_MODE}, player_car_image={'OK' if player_car_image else 'NONE'}, rival_images={len(rival_images)}", "DEBUG")
+    # 初始化对手赛车集合
+    opponents = []
+    opponent_spawn_timer = 0.0
+    opponent_spawn_interval = 0.9
 
     # 障碍物数据结构：{x, y, w, h, color}
     obstacles = []
@@ -99,8 +192,13 @@ def main():
     running = True
     game_over = False
 
+    frame_count = 0
     while True:
         dt = clock.tick(60) / 1000.0  # seconds elapsed this frame
+        frame_count += 1
+        # 每帧调试信息（限制输出，避免过于冗长）
+        if DEBUG_MODE:
+            log(f"Frame start dt={dt:.4f} frame_count={frame_count}")
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -110,6 +208,7 @@ def main():
                     if event.key == pygame.K_r:
                         # 重启游戏
                         obstacles.clear()
+                        opponents.clear()
                         car_x = WIDTH // 2 - CAR_WIDTH // 2
                         car_y = HEIGHT - CAR_HEIGHT - 50
                         distance = 0.0
@@ -134,11 +233,22 @@ def main():
             level = int(distance // 100)
             obstacle_speed = 5 + min(20, level * 0.5)
             if spawn_timer >= spawn_interval:
-                w = random.randint(40, 90)
-                h = random.randint(20, 60)
-                x = random.randint(ROAD_LEFT + 10, ROAD_RIGHT - w - 10)
-                y = -h
-                obstacles.append({"x": x, "y": y, "w": w, "h": h, "color": (255, 0, 0)})
+                if rival_images:
+                    img = random.choice(rival_images)
+                    w, h = img['w'], img['h']
+                    x = random.randint(ROAD_LEFT + 10, ROAD_RIGHT - w - 10)
+                    y = -h
+                    opponents.append({"image": img['image'], "x": x, "y": y, "w": w, "h": h, "speed": obstacle_speed * (0.9 + random.uniform(0, 0.4))})
+                    if DEBUG_MODE:
+                        log(f"Spawn rival: x={x}, y={y}, w={w}, h={h}, speed={opponents[-1]['speed']:.2f}", "DEBUG")
+                else:
+                    w = random.randint(40, 90)
+                    h = random.randint(20, 60)
+                    x = random.randint(ROAD_LEFT + 10, ROAD_RIGHT - w - 10)
+                    y = -h
+                    obstacles.append({"x": x, "y": y, "w": w, "h": h, "color": (255, 0, 0)})
+                    if DEBUG_MODE:
+                        log(f"Spawn obstacle: x={x}, y={y}, w={w}, h={h}", "DEBUG")
                 spawn_timer = 0.0
                 # 让后续生成更紧凑一点，随着等级提升
                 spawn_interval = max(0.6, 0.9 - level * 0.02)
@@ -147,16 +257,30 @@ def main():
             for o in obstacles:
                 o["y"] += obstacle_speed
             obstacles = [o for o in obstacles if o["y"] < HEIGHT + o["h"]]
+            # 移动对手赛车
+            for opp in opponents:
+                opp["y"] += opp["speed"]
+            opponents = [opp for opp in opponents if opp["y"] < HEIGHT + opp["h"]]
 
             # 距离/分数更新
             distance += obstacle_speed * dt * 10
 
-            # 碰撞检测
+            # 碰撞检测（玩家与障碍物）
             car_rect = pygame.Rect(car_x, car_y, CAR_WIDTH, CAR_HEIGHT)
             for o in obstacles:
                 obs_rect = pygame.Rect(o["x"], o["y"], o["w"], o["h"])
                 if car_rect.colliderect(obs_rect):
                     game_over = True
+                    if DEBUG_MODE:
+                        log(f"Collision: player with obstacle at ({o['x']},{o['y']}) size ({o['w']},{o['h']})", "DEBUG")
+                    break
+            # 碰撞检测（玩家与对手赛车）
+            for opp in opponents:
+                opp_rect = pygame.Rect(opp["x"], opp["y"], opp["w"], opp["h"])
+                if car_rect.colliderect(opp_rect):
+                    game_over = True
+                    if DEBUG_MODE:
+                        log(f"Collision: player with rival at ({opp['x']},{opp['y']}) size ({opp['w']},{opp['h']})", "DEBUG")
                     break
 
         # 绘制场景
@@ -172,13 +296,21 @@ def main():
         dash_gap = 20
         for y in range(0, HEIGHT, dash_h + dash_gap):
             pygame.draw.rect(screen, (255, 255, 255), (center_x - 2, y, 4, dash_h))
-
-        # 绘制更美观的小车外观
-        draw_car(screen, car_x, car_y, CAR_WIDTH, CAR_HEIGHT)
+        # 绘制更美观的小车外观（如无图片则回退到绘制）
+        if player_car_image is not None:
+            screen.blit(player_car_image, (car_x, car_y))
+        else:
+            draw_car(screen, car_x, car_y, CAR_WIDTH, CAR_HEIGHT)
 
         # 绘制障碍物
         for o in obstacles:
             pygame.draw.rect(screen, o["color"], (o["x"], o["y"], o["w"], o["h"]))
+        # 绘制对手赛车
+        for opp in opponents:
+            if opp.get('image') is not None:
+                screen.blit(opp['image'], (opp['x'], opp['y']))
+            else:
+                pygame.draw.rect(screen, (200, 0, 0), (opp["x"], opp["y"], opp["w"], opp["h"]))
 
         # HUD
         dist_text = font.render(f"距离: {int(distance)}", True, (255, 255, 255))
